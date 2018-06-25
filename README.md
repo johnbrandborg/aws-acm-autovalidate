@@ -22,7 +22,9 @@ Resources:
     Type: Custom::ACMAutoValidate
     Properties:
       ServiceToken: !ImportValue ACMAutoValidate
-      FQDN: host.example.com
+      domainname: host.example.com
+      additionalnames:
+        - www.example.com
 
 Outputs:
   ACMCertificateARN:
