@@ -1,0 +1,45 @@
+Description: "Deploys ACMAutoValidate Lambda that can be used as a CFN Custom Resources."
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: "ACMandRoute53Access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "acm:DescribeCertificate"
+                  - "acm:ListCertificates"
+                  - "acm:RequestCertificate"
+                  - "acm:DeleteCertificate"
+                  - "route53:ListHostedZonesByName"
+                  - "route53:ChangeResourceRecordSets"
+                Resource: "*"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action: 
+          - "sts:AssumeRole"
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: acm-autovalidate
+      Code: acm-autovalidate.zip
+      Handler: acm_autovalidate.handler
+      Role: !GetAtt Role.Arn
+      Runtime: python3.6
+
+Outputs:
+  FunctionArn:
+    Value: !GetAtt Function.Arn
+    Export:
+      Name: ACMAutoValidate
