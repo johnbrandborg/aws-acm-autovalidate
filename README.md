@@ -1,6 +1,6 @@
-# ACM Auto Validation
+# ACM Auto Validation (DNS)
 
-AWS ACM Auto Valudation is a tool for adding more convenience to your [AWS CloudFormation](https://aws.amazon.com/cloudformation/) templates, and SAM deployments.  It will also the creation of fully issues Certificates in ACM that autorenew.
+A Lambda Function to automate the creation of Certificates in AWS ACM with DNS Validation.  AWS ACM Auto Valudation is a tool for adding more convenience to your [AWS CloudFormation](https://aws.amazon.com/cloudformation/) templates, and [SAM deployments](https://aws.amazon.com/about-aws/whats-new/2016/11/introducing-the-aws-serverless-application-model/). By automating the process of DNS validation into CloudFormation you are covered by the automatic renewal of the certificates through DNS CNAME validation.
 
 ### Installation
 
