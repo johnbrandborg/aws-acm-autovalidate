@@ -103,4 +103,6 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-code.zip
+# Locally generated files
+template.out.yaml
+acm-autovalidate.zip
