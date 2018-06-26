@@ -18,9 +18,9 @@ def handler(event, context):
     acm_client = boto3.client("acm")
     route53_client = boto3.client("route53")
 
-    # Create a temporary PhysicalId until the ARN is created and can be used
+    # Create a temporary PhysicalResourceId until the Certificate ARN is created and can be used instead
     if event["RequestType"] == "Create":
-        event["PhysicalResourceId"] = context.log_stream_name
+        event["PhysicalResourceId"] = context.invoked_function_arn.split(":").pop()
  
     print("Check for any missing requirements and setup variables")
     properties = event.get("ResourceProperties", {})
