@@ -5,7 +5,7 @@ Contains the handler function that is used to execute the Lambda Function
 
 import traceback
 import boto3
-from time import sleep
+import time
 from .helper import responder
 
 def handler(event, context):
@@ -20,23 +20,27 @@ def handler(event, context):
 
     # Create a temporary PhysicalResourceId until the Certificate ARN is created and can be used instead
     if event["RequestType"] == "Create":
-        event["PhysicalResourceId"] = context.invoked_function_arn.split(":").pop()
+        event["PhysicalResourceId"] = context.aws_request_id
  
-    print("Check for any missing requirements and setup variables")
+    print("Checking for requiremented properties and set variables")
     properties = event.get("ResourceProperties", {})
-    missing = [param for param in ("domainname","additionalnames") if param not in properties]
-    if missing:
-        return responder(event, context, "FAILED", "Missing parameter(s): {}".format(", ".join(missing)))
+    if "domainname" not in properties:
+        return responder(event, context, "FAILED", f"Missing parameter(s): {domainname}")
     domainname = properties["domainname"].rstrip(".")
     domain = ".".join(domainname.split(".")[1:])
-    additionalnames = [name.rstrip(".") for name in properties["additionalnames"]]
+    additionalnames = [
+        name.rstrip(".") for name in properties["additionalnames"]
+    ] if "additionalnames" in properties else None
 
-    print(f"Check if the domain exists and gather ZoneID for {domain}")
-    zone_id = route53_client.list_hosted_zones_by_name(DNSName = domain)["HostedZones"][0]["Id"]
+    print(f"Checking if the domain exists and gather ZoneID for {domain}")
+    hosted_zones = route53_client.list_hosted_zones_by_name(DNSName = domain)["HostedZones"]
+    if len(hosted_zones) > 1:
+        return responder(event, context, "FAILED", "Domainname is not specific enough to determine the Hosted Zone ID") 
+    else:
+        zone_id = hosted_zones[0]["Id"]
 
     if event["RequestType"] == "Delete":
-        print("Delete Request received. Removing resources")
-        # Collect the Pending ARN and then gather CNAME details for Validation
+        print("Delete Request received. Attempting to remove ACM and Route53 resources")
         try:
             certificate_details = acm_client.describe_certificate(CertificateArn = event["PhysicalResourceId"])
             change_record = [
@@ -66,49 +70,54 @@ def handler(event, context):
             traceback.print_exc()
         return responder(event, context)
 
-    print(f"Checking if the certificate has been created for {domainname}")
-    certificates = acm_client.list_certificates(
-        CertificateStatuses=[
-            "PENDING_VALIDATION",
-            "ISSUED"
-        ]
-    )["CertificateSummaryList"]
-    certificate_arns = [cert["CertificateArn"] for cert in certificates if cert["DomainName"] == domainname]
-    certificate_arn = certificate_arns[0] if len(certificate_arns) == 1 else None
-
-    print("Create/Update Request received. Creating Resources")
-    if certificate_arn is None:
+    print("Create/Update Request received. Attempting to create ACM and Route53 Resources")
+    if not event["PhysicalResourceId"].startswith("arn:aws:acm:"):
+        print("No ARN listed within the PhysicalRecourseId. Creating a Certificate now.")
         try:
-            acm_response = acm_client.request_certificate(
-                DomainName = domainname,
-                SubjectAlternativeNames = additionalnames,
-                ValidationMethod = "DNS",
-                IdempotencyToken = event["LogicalResourceId"]
-            )
-            certificate_arn = acm_response["CertificateArn"]
-            sleep(5)
+            if additionalnames is None:
+                acm_response = acm_client.request_certificate(
+                    DomainName = domainname,
+                    ValidationMethod = "DNS",
+                    IdempotencyToken = event["LogicalResourceId"]
+                )
+            else:
+                acm_response = acm_client.request_certificate(
+                    DomainName = domainname,
+                    SubjectAlternativeNames = additionalnames,
+                    ValidationMethod = "DNS",
+                    IdempotencyToken = event["LogicalResourceId"]
+                )
         except:
             traceback.print_exc()
+        event["PhysicalResourceId"] = acm_response["CertificateArn"]
+    else:
+        print("Certificate has already been created.  Only the DNS will be processed")
 
-    # Build the change record with any DNS options found on the Certificate
-    certificate_details = acm_client.describe_certificate(CertificateArn = certificate_arn)
-    change_record = [
-        {
-            "Action":"UPSERT",
-            "ResourceRecordSet": {
-                "Name": options["ResourceRecord"]["Name"],
-                "Type": options["ResourceRecord"]["Type"],
-                "TTL": 3600,
-                "ResourceRecords": [
-                    {
-                        "Value": options["ResourceRecord"]["Value"]
+    print("Setting up DNS Validation with options found on {}".format(event["PhysicalResourceId"]))
+    exceptions = 0
+    while True:
+        if exceptions == 3: break
+        try:
+            certificate_details = acm_client.describe_certificate(CertificateArn = event["PhysicalResourceId"])
+            change_record = [
+                {
+                    "Action":"UPSERT",
+                    "ResourceRecordSet": {
+                        "Name": options["ResourceRecord"]["Name"],
+                        "Type": options["ResourceRecord"]["Type"],
+                        "TTL": 3600,
+                        "ResourceRecords": [
+                            {
+                                "Value": options["ResourceRecord"]["Value"]
+                            }
+                        ]
                     }
-                ]
-            }
-        } for options in certificate_details["Certificate"]["DomainValidationOptions"]
-    ]
-
-    print("Creating the DNS Validation entry within the Route53 Zone")
+                } for options in certificate_details["Certificate"]["DomainValidationOptions"]
+            ]
+            break
+        except:
+            exceptions = exceptions + 1
+            time.sleep(10)
     try:
         route53_response = route53_client.change_resource_record_sets(
             HostedZoneId = zone_id,
@@ -119,6 +128,4 @@ def handler(event, context):
         )
     except:
         traceback.print_exc()
-
-    event["PhysicalResourceId"] = certificate_arn
-    return responder(event, context, data = {"Arn": certificate_arn})
+    return responder(event, context, data = {"Arn": event["PhysicalResourceId"]})

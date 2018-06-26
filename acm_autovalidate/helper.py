@@ -10,7 +10,7 @@ def responder(event, context, status = "SUCCESS", reason = "Not Specified", data
     """
     CloudFormation Responder
     """
-    print(f"Response: {status} Reason:{reason} Data:{data}")
+    print(f"Response: {status} Reason: {reason} Data: {data}")
 
     # Build Response as a PUT Request
     body = {
